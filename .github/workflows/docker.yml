@@ -1,0 +1,71 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - master
+  #   tags:
+  #     - v*
+  # pull_request:
+
+env:
+  REGISTRY_URL: docker.pkg.github.com
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    outputs:
+      REPOSITORY_NAME: ${{ steps.repository-name.outputs.REPOSITORY_NAME }} 
+      IMAGE_VERSION: ${{ steps.image-version.outputs.IMAGE_VERSION }}
+      IMAGE_BUILD: ${{ steps.image-build.outputs.IMAGE_BUILD }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Repository Name
+        id: repository-name
+        run: echo "##[set-output name=REPOSITORY_NAME;]$( echo ${{ github.repository }} | awk -F / '{print $2}' )"
+
+      - name: Image Version
+        id: image-version
+        run: |
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+            
+          # Strip "v" prefix from tag name
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$( echo $VERSION | sed -e 's/^v//' )
+          
+          # Use Docker `latest` tag convention
+          [ "$VERSION" == "master" ] && VERSION=latest
+
+          echo "##[set-output name=IMAGE_VERSION;]$(echo ${VERSION})"
+      
+      - name: Image Build
+        id: image-build
+        run: |
+          ORG=$( echo "${{ github.repository }}" | awk -F / '{print $1}' | tr '[A-Z]' '[a-z]' )
+          BUILD_NAME=${REGISTRY_URL}/${ORG}/${{ steps.repository-name.outputs.REPOSITORY_NAME }}/${{ steps.repository-name.outputs.REPOSITORY_NAME }}:${{ steps.image-version.outputs.IMAGE_VERSION }}
+
+          # Change all uppercase to lowercase
+          BUILD_NAME=$(echo $BUILD_NAME | tr '[A-Z]' '[a-z]')
+
+          docker build -t ${BUILD_NAME} .
+
+          echo "##[set-output name=IMAGE_BUILD;]$(echo ${BUILD_NAME})"
+
+      - name: Log into registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${REGISTRY_URL} -u ${{ github.actor }} --password-stdin
+
+      - name: Docker Push
+        run: docker push ${{ steps.image-build.outputs.IMAGE_BUILD }}
+
+  check-images:
+    needs: build
+    runs-on: ubuntu-latest
+   
+    steps:
+
+      - name: Check docker images other job
+        run:  docker images
