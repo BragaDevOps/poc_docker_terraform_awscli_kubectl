@@ -1,0 +1,1 @@
+# poc_docker_terraform_awscli_kubectl
